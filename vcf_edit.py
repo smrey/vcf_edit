@@ -28,9 +28,15 @@ def get_args():
             File path to vcf file to be edited. REQUIRED.
             '''))
 
-    # OPTIONAL:
+   # OPTIONAL:
     optional_options = argument_parser.add_mutually_exclusive_group()
-    # TODO Add optional argument for output file name
+    optional_options.add_argument(
+        '-o', '--output_file', action='store_true', default=False,
+        help=textwrap.dedent(
+            '''
+            Add output filename. Default is {input filename}_edited.vcf. OPTIONAL.
+            '''))
+
     return argument_parser.parse_args()
 
 
