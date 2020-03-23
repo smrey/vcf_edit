@@ -73,17 +73,11 @@ def apply_iupac(bases):
     return called
 
 
-
 def reads_to_proportions(total_depth, depths_per_base):
     proportions = []
     for base_depth in depths_per_base:
         proportions.append(base_depth/total_depth)
     return proportions
-
-
-def proportion_per_base(total_reads, reads_per_base):
-    print(total_reads, reads_per_base)
-    return None
 
 
 def load_vcf(vcf_file_path):
