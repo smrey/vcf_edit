@@ -61,33 +61,6 @@ def write_vcf(records_to_write, read_vcf, output_vcf="output.vcf"):
         vcf_writer.write_record(record)
 
 
-def single_snp_call(ref_snp, called_snp):
-    # Add appropriate IUPAC code
-    find_iupac = [ref_snp, str(called_snp[0])]
-    find_iupac.sort()
-    find_iupac = tuple(find_iupac)
-    called_snp = iupac_dict.get(find_iupac)
-    if not called_snp:
-        # Combination of nucleotides not in dictionary- call uncertain- set to N
-        called_snp = iupac_dict.get('uncertainty')
-    return called_snp
-
-
-def multiple_snp_calls(ref_snp, called_snps):
-    snps = [ref_snp]
-    [snps.append(str(s)) for s in called_snps]
-    # Handle cases where
-    snps.sort()
-    snps = tuple(snps)
-    # Add appropriate IUPAC code
-    find_iupac = (snps)
-    called_snps = iupac_dict.get(find_iupac)
-    if not called_snps:
-        # Combination of nucleotides not in dictionary- call uncertain- set to N
-        called_snps = iupac_dict.get('uncertainty')
-    return called_snps
-
-
 def apply_iupac(bases):
     # Order in alphabetical order for lookup
     bases.sort()
