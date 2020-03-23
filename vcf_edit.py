@@ -135,6 +135,7 @@ def parse_vcf(vcf, AF_data_location):
             # Pass through only bases representing 0.75 or more of the total reads
             if supporting_proportions[i] > confident_allele_support_proportion:
                 # Only one base can meet the above criteria
+                # If final call is the same as the reference base alt should be set to .
                 if b == record.REF:
                     record.ALT = '.'
                 else:
