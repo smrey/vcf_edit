@@ -79,8 +79,11 @@ def apply_iupac(bases):
 
 def reads_to_proportions(total_depth, depths_per_base):
     proportions = []
-    for base_depth in depths_per_base:
-        proportions.append(base_depth/total_depth)
+    try:
+        for base_depth in depths_per_base:
+            proportions.append(base_depth/total_depth)
+    except TypeError:
+        proportions.append(depths_per_base/total_depth)
     return proportions
 
 
@@ -90,6 +93,30 @@ def parse_out_sample_format(format_field, call_data):
     for i, annotation in enumerate(format_field_annotations):
         sample_format_data_dict[annotation] = call_data[i]
     return sample_format_data_dict
+
+
+def get_total_bases_at_site(info_field):
+    try:
+        high_quality_bases = sum(info_field['DP4'])
+    except TypeError:
+        try:
+            high_quality_bases = int(info_field['DP4'])
+        except TypeError or ValueError:
+            raise ValueError(f"Total number of high quality bases could not be determined from DP4 value. Proportion"
+                             f" of bases supporting each read cannot be determined.")
+    return high_quality_bases
+
+
+def get_total_supporting_reads(reads):
+    try:
+        high_quality_bases = sum(reads)
+    except TypeError:
+        try:
+            high_quality_bases = int(reads)
+        except TypeError or ValueError:
+            raise ValueError(f"Total number of high quality bases could not be determined from DP4 value. Proportion"
+                             f" of bases supporting each read cannot be determined.")
+    return high_quality_bases
 
 
 def load_vcf(vcf_file_path):
@@ -119,28 +146,29 @@ def parse_vcf(vcf):
 
         # Process all sites that are single nucleotides
         # Sites with minimum depth of coverage over all alleles at below threshold value are uncertain and set to N
-        # TODO Double check this threshold is per site not per base
-        if record.INFO['DP'] < minimum_depth:
+        # Handle cases where there is only one DP4 value
+        total_bases_at_site = get_total_bases_at_site(record.INFO)
+
+        if total_bases_at_site < minimum_depth:
             record.ALT = iupac_dict.get('uncertainty')
             vcf_record.append(record)
             continue
 
         # Calculate high quality depth at site
-        # TODO DP CANNOT BE USED if quality filtering is included in mpileup
-
-
+        # DP CANNOT BE USED if quality filtering is included in mpileup
         # Do not process reference where no alt was called sites further (note, these sites have no PL annotation)
-        if record.is_indel:
-            vcf_record.append(record)
-            continue
+        #if record.is_indel:
+            #vcf_record.append(record)
+            #continue
 
         # Multisample vcfs not supported- TODO if needed
         if len(record.samples) != 1:
             raise NotImplementedError(f"Multisample VCFs not currently supported. "
-                                      f"Only one sample per record supported.")
+                                      f" Only one sample per record supported.")
 
         # For variant sites passing minimum depth threshold, obtain proportion of reads supporting each base
-        all_bases = [str(base) for base in record.ALT]
+        # Do not add an alt base if there is not one (and it is therefore None)
+        all_bases = [str(base) for base in record.ALT if base is not None]
         all_bases.insert(0, record.REF)
 
         # Obtain correct FORMAT data for site
@@ -148,9 +176,16 @@ def parse_vcf(vcf):
         try:
             supporting_reads = format_field_dictionary['AD']
         except KeyError as e:
-            raise KeyError(f'Allele depth annotation not found for VCF. Unable to determine supporting reads per '
-                           f'allele. Cannot filter VCFs without the AD annotation.')
-        supporting_proportions = reads_to_proportions(record.INFO['DP'], supporting_reads)
+            raise KeyError(f"Allele depth annotation not found for VCF. Unable to determine supporting reads per"
+                           f" allele. Cannot filter VCFs without the AD annotation.")
+        # Sanity Check
+        total_supporting_reads = get_total_supporting_reads(supporting_reads)
+        if total_bases_at_site != total_supporting_reads:
+            raise ValueError(f"Total number of high quality bases could not be unambiguously determined. Proportion"
+                             f" of bases supporting each read cannot be determined.")
+
+        # Obtain proportion of reads supporting each base from numbers
+        supporting_proportions = reads_to_proportions(total_bases_at_site, supporting_reads)
 
         # Filtering on proportion of supporting bases
         # TODO remove depth annotations for alleles that are no longer coming through
