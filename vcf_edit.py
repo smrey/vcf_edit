@@ -102,7 +102,8 @@ def parse_vcf(vcf, AF_data_location):
         is_indel = record.INFO.get('INDEL', False)
         # Do not process indels further
         if is_indel:
-            vcf_record.append(record)
+            # Do not propagate indels called through this workflow
+            #vcf_record.append(record)
             continue
 
         # Process all sites that are single nucleotides
