@@ -149,6 +149,7 @@ def parse_vcf(vcf):
         supporting_proportions = reads_to_proportions(record.INFO['DP'], supporting_reads)
 
         # Filtering on proportion of supporting bases
+        # TODO remove depth annotations for alleles that are no longer coming through
         bases_to_process = []
         iupac_uncertainty = False
         for i, b in enumerate(all_bases):
