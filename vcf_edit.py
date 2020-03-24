@@ -125,6 +125,10 @@ def parse_vcf(vcf):
             vcf_record.append(record)
             continue
 
+        # Calculate high quality depth at site
+        # TODO DP CANNOT BE USED if quality filtering is included in mpileup
+
+
         # Do not process reference where no alt was called sites further (note, these sites have no PL annotation)
         if record.is_indel:
             vcf_record.append(record)
