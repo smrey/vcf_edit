@@ -16,6 +16,7 @@ minimum_depth = 20
 minimum_allele_support_proportion = 0.25
 confident_allele_support_proportion = 0.75
 
+
 def get_args():
     argument_parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
@@ -83,6 +84,14 @@ def reads_to_proportions(total_depth, depths_per_base):
     return proportions
 
 
+def parse_out_sample_format(format_field, call_data):
+    sample_format_data_dict = {}
+    format_field_annotations = format_field.split(':')
+    for i, annotation in enumerate(format_field_annotations):
+        sample_format_data_dict[annotation] = call_data[i]
+    return sample_format_data_dict
+
+
 def load_vcf(vcf_file_path):
     try:
         read_vcf = vcf.Reader(open(vcf_file_path, 'r'))
@@ -94,7 +103,7 @@ def load_vcf(vcf_file_path):
     return read_vcf
 
 
-def parse_vcf(vcf, AF_data_location):
+def parse_vcf(vcf):
     vcf_record = []
     # Update ALT base for SNPs
     # Do not process indel calls
@@ -123,13 +132,20 @@ def parse_vcf(vcf, AF_data_location):
 
         # Multisample vcfs not supported- TODO if needed
         if len(record.samples) != 1:
-            raise NotImplementedError(f"Multisample VCFs not supported. Only one sample per record supported.")
+            raise NotImplementedError(f"Multisample VCFs not currently supported. "
+                                      f"Only one sample per record supported.")
 
         # For variant sites passing minimum depth threshold, obtain proportion of reads supporting each base
         all_bases = [str(base) for base in record.ALT]
         all_bases.insert(0, record.REF)
-        #print(record.samples) TODO delete
-        supporting_reads = record.samples[0].data[AF_data_location]
+
+        # Obtain correct FORMAT data for site
+        format_field_dictionary = parse_out_sample_format(record.FORMAT, record.samples[0].data)
+        try:
+            supporting_reads = format_field_dictionary['AD']
+        except KeyError as e:
+            raise KeyError(f'Allele depth annotation not found for VCF. Unable to determine supporting reads per '
+                           f'allele. Cannot filter VCFs without the AD annotation.')
         supporting_proportions = reads_to_proportions(record.INFO['DP'], supporting_reads)
 
         # Filtering on proportion of supporting bases
@@ -165,9 +181,9 @@ def main():
     vcf_data = load_vcf(args.path_to_vcf)
     # Obtain default output filename
     outfile = f"{os.path.splitext(args.path_to_vcf)[0]}_edited.vcf"
-    # from bcftools the location of the allele depth (per allele)- TODO link to option for variant caller
-    index_of_AD = 2  # TODO unpack these values to a dict so don't need to hardcode this in and can look up AD
-    updated_vcf_data = parse_vcf(vcf_data, index_of_AD)
+    # Update/Filter vcf data where required
+    updated_vcf_data = parse_vcf(vcf_data)
+    # Write updated vcf file
     write_vcf(updated_vcf_data, vcf_data, outfile)
 
 
