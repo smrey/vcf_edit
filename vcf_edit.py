@@ -157,7 +157,7 @@ def parse_vcf(vcf, AF_data_location):
 
 def main():
     __version__ = '0.0.1'
-    __updated__ = '23/03/2020'
+    __updated__ = '24/03/2020'
     args = get_args()
     vcf_data = load_vcf(args.path_to_vcf)
     # Obtain default output filename
