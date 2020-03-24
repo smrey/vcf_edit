@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import vcf
 import argparse
 import textwrap
