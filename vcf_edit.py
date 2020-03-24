@@ -1,6 +1,7 @@
 import vcf
 import argparse
 import textwrap
+import os
 
 # Dictionary of IUPAC codes
 iupac_dict = {('A', 'G'): 'R', ('C', 'T'): 'Y', ('C', 'G'): 'S', ('A', 'T'): 'W', ('G', 'T'): 'K', ('A', 'C'): 'M',
@@ -159,10 +160,12 @@ def main():
     __updated__ = '23/03/2020'
     args = get_args()
     vcf_data = load_vcf(args.path_to_vcf)
+    # Obtain default output filename
+    outfile = f"{os.path.splitext(args.path_to_vcf)[0]}_edited.vcf"
     # from bcftools the location of the allele depth (per allele)- TODO link to option for variant caller
     index_of_AD = 2 # TODO unpack these values to a dict so don't need to hardcode this in and can look up AD
     updated_vcf_data = parse_vcf(vcf_data, index_of_AD)
-    write_vcf(updated_vcf_data, vcf_data)
+    write_vcf(updated_vcf_data, vcf_data, outfile)
 
 
 if __name__ == '__main__':
