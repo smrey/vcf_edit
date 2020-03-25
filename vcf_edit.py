@@ -6,16 +6,6 @@ import textwrap
 import os
 from collections import namedtuple
 
-# Sub-class private class so can be edited
-from vcf.model import _Call, make_calldata_tuple
-
-
-# Sub-class private class so can be edited
-class Caller(_Call):
-    def caller(self):
-        self.Parent.model_Call()
-
-
 # Dictionary of IUPAC codes
 iupac_dict = {('A', 'G'): 'R', ('C', 'T'): 'Y', ('C', 'G'): 'S', ('A', 'T'): 'W', ('G', 'T'): 'K', ('A', 'C'): 'M',
               ('C', 'G', 'T'): 'B', ('A', 'G', 'T'): 'D', ('A', 'C', 'T'): 'H', ('A', 'C', 'G'): 'V',
@@ -23,7 +13,7 @@ iupac_dict = {('A', 'G'): 'R', ('C', 'T'): 'Y', ('C', 'G'): 'S', ('A', 'T'): 'W'
 
 # This will use a lot of memory for large vcfs
 
-minimum_depth = 20
+# Default values
 minimum_allele_support_proportion = 0.25
 confident_allele_support_proportion = 0.75
 
@@ -102,15 +92,7 @@ def format_data_format_creator(format_dict, base_pos, iupac_uncertainty=False):
             # Single value only
             format_values.append(format_value)
     ca = namedtuple('CallData', format_titles)
-    # Case where only one alt base comes through
-    if not iupac_uncertainty:
-        caller_data = ca(format_values[0], format_values[1],
-                         format_values[2])  # TODO Fix this line to be flexible to len(format_titles)
-
-    # Case where multiple alt bases come through as iupac uncertainty code
-    else:
-        caller_data = ca(format_values[0], format_values[1],)  # TODO Fix this line to be flexible to len(format_titles)
-
+    caller_data = ca(*format_values)
     return caller_data
 
 
@@ -167,7 +149,7 @@ def load_vcf(vcf_file_path):
     return read_vcf
 
 
-def parse_vcf(vcf):
+def parse_vcf(vcf, minimum_depth):
     vcf_record = []
     # Update ALT base for SNPs
     # Do not process indel calls
@@ -270,9 +252,8 @@ def parse_vcf(vcf):
             record.INFO['AD'] = updated_format_allele_depth
 
             # Update FORMAT entries- retain unknown genotype and allele depth information only- single allele only (0)
-            print(record.FORMAT)
             record.FORMAT = 'GT:AD'
-            new_format_field_dictionary = {'GT': './.', 'AD': updated_format_allele_depth}
+            new_format_field_dictionary = {'GT': '.', 'AD': updated_format_allele_depth}
             caller_data = format_data_format_creator(new_format_field_dictionary, 0, iupac_uncertainty=True)
             record.samples[0].data = caller_data
 
@@ -283,13 +264,23 @@ def parse_vcf(vcf):
 
 def main():
     __version__ = '0.0.1'
-    __updated__ = '24/03/2020'
+    __updated__ = '25/03/2020'
     args = get_args()
+    # Load VCF file
     vcf_data = load_vcf(args.path_to_vcf)
-    # Obtain default output filename
-    outfile = f"{os.path.splitext(args.path_to_vcf)[0]}_edited.vcf"
+    # Set output filename
+    if args.output_file:
+        outfile = args.output_file
+    else:
+        outfile = f"{os.path.splitext(args.path_to_vcf)[0]}_edited.vcf"
+    # Set minimum depth to call a base (below this it is set to N)
+    if args.min_depth:
+        min_depth = args.min_depth
+    else:
+        min_depth = 20
+
     # Update/Filter vcf data where required
-    updated_vcf_data = parse_vcf(vcf_data)
+    updated_vcf_data = parse_vcf(vcf_data, min_depth)
     # Write updated vcf file
     write_vcf(updated_vcf_data, vcf_data, outfile)
 
