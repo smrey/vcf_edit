@@ -4,6 +4,17 @@ import vcf
 import argparse
 import textwrap
 import os
+from collections import namedtuple
+
+# Sub-class private class so can be edited
+from vcf.model import _Call, make_calldata_tuple
+
+
+# Sub-class private class so can be edited
+class Caller(_Call):
+    def caller(self):
+        self.Parent.model_Call()
+
 
 # Dictionary of IUPAC codes
 iupac_dict = {('A', 'G'): 'R', ('C', 'T'): 'Y', ('C', 'G'): 'S', ('A', 'T'): 'W', ('G', 'T'): 'K', ('A', 'C'): 'M',
@@ -145,21 +156,21 @@ def parse_vcf(vcf):
             continue
 
         # Process all sites that are single nucleotides
-        # Sites with minimum depth of coverage over all alleles at below threshold value are uncertain and set to N
+        # DP CANNOT BE USED if quality filtering is included in mpileup- calculate total depth from sun of DP4
         # Handle cases where there is only one DP4 value
         total_bases_at_site = get_total_bases_at_site(record.INFO)
 
+        # Sites with minimum depth of coverage over all alleles at below threshold value are uncertain and set to N
         if total_bases_at_site < minimum_depth:
             record.ALT = iupac_dict.get('uncertainty')
             vcf_record.append(record)
             continue
 
         # Calculate high quality depth at site
-        # DP CANNOT BE USED if quality filtering is included in mpileup
         # Do not process reference where no alt was called sites further (note, these sites have no PL annotation)
-        #if record.is_indel:
-            #vcf_record.append(record)
-            #continue
+        if record.is_indel:
+            vcf_record.append(record)
+            continue
 
         # Multisample vcfs not supported- TODO if needed
         if len(record.samples) != 1:
@@ -188,13 +199,40 @@ def parse_vcf(vcf):
         supporting_proportions = reads_to_proportions(total_bases_at_site, supporting_reads)
 
         # Filtering on proportion of supporting bases
-        # TODO remove depth annotations for alleles that are no longer coming through
+        # TODO remove depth annotations for alleles that are no longer coming through- URGENT
         bases_to_process = []
         iupac_uncertainty = False
         for i, b in enumerate(all_bases):
             # Pass through only bases representing 0.75 or more of the total reads
             if supporting_proportions[i] > confident_allele_support_proportion:
                 # Only one base can meet the above criteria
+                print(record.POS)
+                print(supporting_reads)
+                print(supporting_reads[i])
+                print(record.samples[0].data)
+                print(record.samples)
+                print(record.samples[0].site)
+                caller_data = record.samples[0].data
+                #caller_data = make_calldata_tuple(('GT', 'PL')) # requires input in the 'fields' format, which is the samp_fmt.split(':')
+                print(caller_data)
+                print(record.INFO)
+                print(f"fields are {caller_data._fields}")
+                caller_data = make_calldata_tuple(('GT', 'PL', 'AD'))
+                ca = namedtuple('CallData', ['GT', 'PL', 'AD'])
+                caller_data = ca(3, 1, 677)
+                print(caller_data)
+                record.samples[0].data = caller_data
+                print(record.samples)
+                c = Caller(record.samples[0].site, record.samples[0].sample, caller_data)
+                print(c.data)
+                print(c.data.GT)
+                print(c._format_cache)
+                c.data.GT = 3 #c.data.GT_replace(GT=3)
+                print(c.data)
+                #record.samples[0].data = {'GT':0, 'PL':3, 'AD':45}
+                print(record.samples[0].data)
+                # Edit INFO and FORMAT fields to remove reads where bases have been removed
+
                 # If final call is the same as the reference base alt should be set to .
                 if b == record.REF:
                     record.ALT = '.'
@@ -202,6 +240,8 @@ def parse_vcf(vcf):
                     record.ALT = b
             # Sites with bases with support from >0.25 but <0.75 of the total reads are uncertain
             elif minimum_allele_support_proportion < supporting_proportions[i] < confident_allele_support_proportion:
+                # Edit INFO and FORMAT fields to supply evidence for ambiguity base (summation of reads supporting)
+
                 bases_to_process.append(b)
                 iupac_uncertainty = True
 
