@@ -35,6 +35,13 @@ def get_args():
             '''
             File path to vcf file to be edited. REQUIRED.
             '''))
+    argument_parser.add_argument(
+        '-c', '--caller', action='store',
+        help=textwrap.dedent(
+            '''
+             Specify variant caller that has been used to generate the VCF. Currently supported
+             options are bcftools and lofreq. REQUIRED.
+            '''))
 
    # OPTIONAL: TODO Support these options
     optional_options = argument_parser.add_mutually_exclusive_group()
@@ -51,10 +58,10 @@ def get_args():
             Add user configurable minimum depth. Bases below this depth will be set to N Default value 20. OPTIONAL.
             '''))
     optional_options.add_argument(
-        '-b', '--bcftools', action='store_true', default=False,
+        '-c', '--caller', action='store_true', default=False,
         help=textwrap.dedent(
             '''
-           Specify that bcftools variant caller that has been used to generate the VCF. OPTIONAL.
+           Specify variant caller that has been used to generate the VCF. Options are
             '''))
 
     return argument_parser.parse_args()
@@ -148,8 +155,10 @@ def load_vcf(vcf_file_path):
     read_vcf.metadata.update({"vcf_edit": ['VCF edited to apply IUPAC uncertainty codes to ALT snp calls.']})
     return read_vcf
 
+def parse_vcf_lofreq(vcf, minimum_depth):
 
-def parse_vcf(vcf, minimum_depth):
+
+def parse_vcf_bcftools(vcf, minimum_depth):
     vcf_record = []
     # Update ALT base for SNPs
     # Do not process indel calls
@@ -264,7 +273,7 @@ def parse_vcf(vcf, minimum_depth):
 
 def main():
     __version__ = '0.0.1'
-    __updated__ = '25/03/2020'
+    __updated__ = '28/03/2020'
     args = get_args()
     # Load VCF file
     vcf_data = load_vcf(args.path_to_vcf)
@@ -278,6 +287,11 @@ def main():
         min_depth = args.min_depth
     else:
         min_depth = 20
+
+    if args.caller = 'bcftools':
+
+    elif args.caller = 'lofreq':
+
 
     # Update/Filter vcf data where required
     updated_vcf_data = parse_vcf(vcf_data, min_depth)
