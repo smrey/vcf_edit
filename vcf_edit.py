@@ -14,6 +14,7 @@ iupac_dict = {('A', 'G'): 'R', ('C', 'T'): 'Y', ('C', 'G'): 'S', ('A', 'T'): 'W'
 # This will use a lot of memory for large vcfs
 
 # Default values
+default_minimum_depth = 20
 minimum_allele_support_proportion = 0.25
 confident_allele_support_proportion = 0.75
 
@@ -43,7 +44,7 @@ def get_args():
              options are bcftools and lofreq. REQUIRED.
             '''))
 
-   # OPTIONAL: TODO Support these options
+   # OPTIONAL:
     optional_options = argument_parser.add_mutually_exclusive_group()
     optional_options.add_argument(
         '-o', '--output_file', action='store_true', default=False,
@@ -56,12 +57,6 @@ def get_args():
         help=textwrap.dedent(
             '''
             Add user configurable minimum depth. Bases below this depth will be set to N Default value 20. OPTIONAL.
-            '''))
-    optional_options.add_argument(
-        '-c', '--caller', action='store_true', default=False,
-        help=textwrap.dedent(
-            '''
-           Specify variant caller that has been used to generate the VCF. Options are
             '''))
 
     return argument_parser.parse_args()
@@ -113,6 +108,20 @@ def reads_to_proportions(total_depth, depths_per_base):
     return proportions
 
 
+def get_proportions(info_field):
+    try:
+        proportions = info_field.get('AF')
+    except KeyError:
+        raise KeyError("No allele frequency annotation AF found")
+    try:
+        # For multiple alleles
+        proportions = [x for x in proportions]
+    except TypeError:
+        # For single alleles
+        proportions = [proportions]
+    return proportions
+
+
 def parse_out_sample_format(format_field, call_data):
     sample_format_data_dict = {}
     format_field_annotations = format_field.split(':')
@@ -155,7 +164,97 @@ def load_vcf(vcf_file_path):
     read_vcf.metadata.update({"vcf_edit": ['VCF edited to apply IUPAC uncertainty codes to ALT snp calls.']})
     return read_vcf
 
+
+def parse_vcf():
+    return None
+
+
 def parse_vcf_lofreq(vcf, minimum_depth):
+    vcf_record = []
+    # Update ALT base for SNPs
+    # Do not process indel calls
+    for record in vcf:
+        # Don't process indels
+        # Inbuild is-indel function finds reference calls (no alt) to be indels- bespoke identify indels
+        is_indel = record.INFO.get('INDEL', False)
+        # Do not process indels further
+        if is_indel:
+            # Do not propagate indels called through this workflow
+            continue
+
+        # Process all sites that are single nucleotides
+        # DP CANNOT BE USED if quality filtering is included in mpileup- calculate total depth from sun of DP4
+        # Handle cases where there is only one DP4 value
+        total_bases_at_site = get_total_bases_at_site(record.INFO)
+
+        # Sites with minimum depth of coverage over all alleles at below threshold value are uncertain and set to N
+        if total_bases_at_site < minimum_depth:
+            record.ALT = iupac_dict.get('uncertainty')
+            vcf_record.append(record)
+            continue
+
+        # Calculate high quality depth at site
+        # Do not process reference where no alt was called sites further (note, these sites have no PL annotation)
+        if record.is_indel:
+            vcf_record.append(record)
+            continue
+
+        # Multisample vcfs not supported- TODO if needed
+        if len(record.samples) > 1:
+            raise NotImplementedError(f"Multisample VCFs not currently supported. "
+                                      f" Only one sample per record supported.")
+
+        # For variant sites passing minimum depth threshold, obtain proportion of reads supporting each base
+        # Do not add an alt base if there is not one (and it is therefore None)
+        all_bases = [str(base) for base in record.ALT if base is not None]
+        all_bases.insert(0, record.REF)
+        alt_bases = [str(base) for base in record.ALT if base is not None]
+
+        # No FORMAT field in lofreq VCF
+        # Filtering on proportion of supporting bases
+        bases_to_process = {}
+        iupac_uncertainty = False
+        # Obtain proportion of reads supporting each base from INFO field
+        supporting_proportions = get_proportions(record.INFO)
+        running_total_low_alts = 0
+        for i, b in enumerate(alt_bases):
+            # If allele frequency is <0.25 pass through reference base- unknown AF to support REF base- set to .
+            if supporting_proportions[i] < minimum_allele_support_proportion:
+                record.INFO['AF'] = '.'
+                record.ALT = record.REF
+
+            # Pass through only bases representing 0.75 or more of the total reads
+            elif supporting_proportions[i] > confident_allele_support_proportion:
+                # Only one base can meet the above criteria
+                # Edit INFO fields to remove proportions where bases have been removed (no FORMAT field)
+                # Update INFO entries
+                record.INFO['AF'] = supporting_proportions[i]
+
+            # Sites with bases with support from >0.25 but <0.75 of the total reads are uncertain
+            elif minimum_allele_support_proportion < supporting_proportions[i] < confident_allele_support_proportion:
+                bases_to_process[b] = supporting_proportions[i]
+                iupac_uncertainty = True
+
+            # Count support for any other alleles with AF <0.25 (running total) at this site
+            else:
+                running_total_low_alts += supporting_proportions[i]
+
+        # Process uncertainty sites
+        if iupac_uncertainty:
+            # Calculate allele frequency supporting any of the bases included in the iupac code- update
+            # Case where there are multiple ALT alleles both with AF >0.25 and <0.75
+            # If the support for all ALTs is <0.75 (including low support fraction), include REF (as it is >0.25)
+            if (sum(bases_to_process.values()) + running_total_low_alts) < confident_allele_support_proportion:
+                # Update bases to process dict to ensure REF is included in IUPAC (unknown support for call)
+                bases_to_process[record.REF] = '.'
+                record.INFO['AF'] = '.'
+            else:
+                # Edit INFO field to supply evidence for ambiguity base (summation of frequencies supporting)
+                record.INFO['AF'] = sum(bases_to_process.values())
+            record.ALT = apply_iupac(bases_to_process)
+        # Update vcf records
+        vcf_record.append(record)
+    return vcf_record
 
 
 def parse_vcf_bcftools(vcf, minimum_depth):
@@ -189,7 +288,7 @@ def parse_vcf_bcftools(vcf, minimum_depth):
             continue
 
         # Multisample vcfs not supported- TODO if needed
-        if len(record.samples) != 1:
+        if len(record.samples) > 1:
             raise NotImplementedError(f"Multisample VCFs not currently supported. "
                                       f" Only one sample per record supported.")
 
@@ -286,15 +385,16 @@ def main():
     if args.min_depth:
         min_depth = args.min_depth
     else:
-        min_depth = 20
-
-    if args.caller = 'bcftools':
-
-    elif args.caller = 'lofreq':
-
+        min_depth = default_minimum_depth
 
     # Update/Filter vcf data where required
-    updated_vcf_data = parse_vcf(vcf_data, min_depth)
+    if args.caller == 'bcftools':
+        updated_vcf_data = parse_vcf_bcftools(vcf_data, min_depth)
+    elif args.caller == 'lofreq':
+        updated_vcf_data = parse_vcf_lofreq(vcf_data, min_depth)
+    else:
+        raise NotImplementedError(f"No current support for variant callers other than bcftools and lofreq")
+
     # Write updated vcf file
     write_vcf(updated_vcf_data, vcf_data, outfile)
 
