@@ -130,13 +130,13 @@ def parse_out_sample_format(format_field, call_data):
     return sample_format_data_dict
 
 
-def get_total_bases_at_site(info_field):
+def get_total_high_qual_bases_at_site(info_field):
     try:
         high_quality_bases = sum(info_field['DP4'])
     except TypeError:
         try:
             high_quality_bases = int(info_field['DP4'])
-        except TypeError or ValueError:
+        except (TypeError, ValueError):
             raise ValueError(f"Total number of high quality bases could not be determined from DP4 value. Proportion"
                              f" of bases supporting each read cannot be determined.")
     return high_quality_bases
@@ -148,7 +148,7 @@ def get_total_supporting_reads(reads):
     except TypeError:
         try:
             high_quality_bases = int(reads)
-        except TypeError or ValueError:
+        except (TypeError, ValueError):
             raise ValueError(f"Total number of high quality bases could not be determined from DP4 value. Proportion"
                              f" of bases supporting each read cannot be determined.")
     return high_quality_bases
@@ -183,9 +183,14 @@ def parse_vcf_lofreq(vcf, minimum_depth):
             continue
 
         # Process all sites that are single nucleotides
-        # DP CANNOT BE USED if quality filtering is included in mpileup- calculate total depth from sun of DP4
-        # Handle cases where there is only one DP4 value
-        total_bases_at_site = get_total_bases_at_site(record.INFO)
+        # Use DP for depth filtering- consistency with calculation for REF sites (if not emitted by caller)
+        try:
+            total_bases_at_site = record.INFO['DP']
+        except KeyError:
+            raise KeyError(f"Could not determine read coverage from this VCF at site {record.POS}. No DP annotation.")
+
+        # Handle cases where there is only one DP4 value- calculate total reads supporting high quality bases using DP4
+        #total_high_qual_bases_at_site = get_total_high_qual_bases_at_site(record.INFO)
 
         # Sites with minimum depth of coverage over all alleles at below threshold value are uncertain and set to N
         if total_bases_at_site < minimum_depth:
@@ -271,11 +276,16 @@ def parse_vcf_bcftools(vcf, minimum_depth):
             continue
 
         # Process all sites that are single nucleotides
-        # DP CANNOT BE USED if quality filtering is included in mpileup- calculate total depth from sun of DP4
-        # Handle cases where there is only one DP4 value
-        total_bases_at_site = get_total_bases_at_site(record.INFO)
+        # Use DP for depth filtering- consistency with calculation for REF sites (if not emitted by caller)
+        try:
+            total_bases_at_site = record.INFO['DP']
+        except KeyError:
+            raise KeyError(f"Could not determine read coverage from this VCF at site {record.POS}. No DP annotation.")
 
-        # Sites with minimum depth of coverage over all alleles at below threshold value are uncertain and set to N
+        # Handle cases where there is only one DP4 value- calculate total reads supporting high quality bases using DP4
+        total_high_qual_bases_at_site = get_total_high_qual_bases_at_site(record.INFO)
+
+        # Sites with minimum depth of coverage below threshold value are uncertain and set to N
         if total_bases_at_site < minimum_depth:
             record.ALT = iupac_dict.get('uncertainty')
             vcf_record.append(record)
@@ -306,12 +316,12 @@ def parse_vcf_bcftools(vcf, minimum_depth):
                            f" allele. Cannot filter VCFs without the AD annotation.")
         # Sanity Check
         total_supporting_reads = get_total_supporting_reads(supporting_reads)
-        if total_bases_at_site != total_supporting_reads:
+        if total_high_qual_bases_at_site != total_supporting_reads:
             raise ValueError(f"Total number of high quality bases could not be unambiguously determined. Proportion"
                              f" of bases supporting each read cannot be determined.")
 
         # Obtain proportion of reads supporting each base from numbers
-        supporting_proportions = reads_to_proportions(total_bases_at_site, supporting_reads)
+        supporting_proportions = reads_to_proportions(total_high_qual_bases_at_site, supporting_reads)
 
         # Filtering on proportion of supporting bases
         bases_to_process = {}
@@ -372,7 +382,7 @@ def parse_vcf_bcftools(vcf, minimum_depth):
 
 def main():
     __version__ = '0.0.1'
-    __updated__ = '28/03/2020'
+    __updated__ = '30/03/2020'
     args = get_args()
     # Load VCF file
     vcf_data = load_vcf(args.path_to_vcf)
